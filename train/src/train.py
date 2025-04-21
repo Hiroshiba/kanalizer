@@ -93,7 +93,7 @@ class Model(nn.Module):
         h1 = None
         h2 = None
         count = 0
-        while res[-1] != eos_idx and count < 16:
+        while count < 16:
             dec = torch.tensor([res[-1]]).unsqueeze(0).to(src.device)
             dec_emb = self.k_emb(dec)
             dec_out, h1 = self.pre_decoder(dec_emb, h1)
@@ -108,7 +108,15 @@ class Model(nn.Module):
                 x = self.post_dec_norm(x)
             x = self.fc(x)
             idx = torch.argmax(x, dim=-1)
+            # 1ステップ目（res長さ1）のときはeosを出力しない
+            if count == 0 and idx.cpu().item() == eos_idx:
+                # eos以外で最大値のインデックスを選ぶ
+                x_ = x.clone()
+                x_[0, 0, eos_idx] = float("-inf")
+                idx = torch.argmax(x_, dim=-1)
             res.append(idx.cpu().item())
+            if res[-1] == eos_idx:
+                break
             count += 1
         return res
 
