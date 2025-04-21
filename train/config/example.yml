@@ -19,3 +19,5 @@ seed: 0
 optimizer_lr: 0.001
 # LayerNormを使うかどうか
 use_layernorm: false
+# Optimizerのweight_decay（L2正則化）。0で無効
+weight_decay: 0
