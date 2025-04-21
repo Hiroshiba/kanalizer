@@ -1,28 +1,27 @@
 # we train a s2s model to predict the katakana phonemes from
 # English phonemes
 import argparse
-from datetime import datetime
-from functools import partial
 import json
 import os
-from pathlib import Path
 import random
 import shutil
 import subprocess
+from datetime import datetime
+from functools import partial
+from pathlib import Path
 
-from g2p_en import G2p
 import torch
-from torch import Tensor, nn
-from torch.nn.utils.rnn import pad_sequence
-from torch.optim.lr_scheduler import ExponentialLR
-from torch.utils.data import DataLoader, Dataset
-from torch.utils.tensorboard import SummaryWriter
-from tqdm.auto import tqdm
 import yaml
-
 from config import Config
 from constants import EOS_IDX, SOS_IDX, ascii_entries, kanas
 from evaluator import Evaluator
+from g2p_en import G2p
+from schedulefree import RAdamScheduleFree
+from torch import Tensor, nn
+from torch.nn.utils.rnn import pad_sequence
+from torch.utils.data import DataLoader, Dataset
+from torch.utils.tensorboard import SummaryWriter
+from tqdm.auto import tqdm
 
 
 class Model(nn.Module):
@@ -257,14 +256,14 @@ def train():
     )
 
     criterion = nn.CrossEntropyLoss(ignore_index=0)
-    optimizer = torch.optim.Adam(model.parameters(), lr=config.optimizer_lr)
-    scheduler = ExponentialLR(optimizer, config.exponential_lr_scheduler_gamma)
+    optimizer = RAdamScheduleFree(model.parameters(), lr=config.optimizer_lr)
     writer = SummaryWriter(log_dir=output_dir)
     evaluator = Evaluator(eval_dataset)
     epochs = config.max_epochs
     steps = 0
     for epoch in range(1, epochs + 1):
         model.train()
+        optimizer.train()
         for eng, kata, e_mask, k_mask in tqdm(train_dl, desc=f"Epoch {epoch} train"):
             optimizer.zero_grad()
             out = model(eng, kata, e_mask, k_mask)
@@ -274,6 +273,7 @@ def train():
             optimizer.step()
             steps += 1
         model.eval()
+        optimizer.eval()
 
         total_loss = 0
         total = 0
@@ -297,9 +297,7 @@ def train():
         writer.add_scalar("BLEU", bleu, epoch)
         print(f"Epoch {epoch} BLEU: {bleu}")
 
-        scheduler.step()
-
-        save_best_models(epoch, model, output_dir, config, best_scores, bleu)
+        save_best_models(epoch, model, output_dir, config, best_scores, bleu.item())
         save_last_models(epoch, model, output_dir, config)
 
 
@@ -308,8 +306,8 @@ def save_best_models(
     model: Model,
     output_dir: Path,
     config: Config,
-    best_scores: list[tuple[int, Tensor]],
-    bleu: Tensor,
+    best_scores: list[tuple[int, float]],
+    bleu: float,
 ):
     best_scores.append((current_epoch, bleu))
     best_scores.sort(key=lambda x: x[1], reverse=True)
